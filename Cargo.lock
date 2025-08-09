@@ -444,6 +444,7 @@ name = "rust-expenses-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",
