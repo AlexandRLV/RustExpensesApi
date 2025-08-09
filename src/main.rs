@@ -45,7 +45,7 @@ async fn main() {
     let app = Router::new()
     	.route("/", get(hello_world))
         .route("/hello", get(hello))
-        .route("/categories", get(get_categories).post(add_category))
+        .route("/categories", get(get_categories).post(add_category).delete(delete_category))
         .with_state(context); // Attach the application context to the router
 
     // Set listen address
@@ -80,7 +80,8 @@ async fn get_categories(State(ctx): State<Arc<AppContext>>) -> impl IntoResponse
 
 async fn add_category(
     State(ctx): State<Arc<AppContext>>,
-    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse {
+    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse
+{
     if let Some(Json(category)) = category {
         if let Some(name) = category.name {
             if name.trim().is_empty() {
@@ -94,6 +95,29 @@ async fn add_category(
 
             categories.push(name.clone());
             return (StatusCode::CREATED, Json(format!("Category added successfully: {name}")));
+        }
+    }
+
+    (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
+}
+
+async fn delete_category(
+    State(ctx): State<Arc<AppContext>>,
+    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse
+{
+    if let Some(Json(category)) = category {
+        if let Some(name) = category.name {
+            if name.trim().is_empty() {
+                return (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
+            }
+
+            let mut categories = ctx.categories.lock().unwrap();
+            if let Some(index) = categories.iter().position(|value| **value == name) {
+                categories.swap_remove(index);
+                return (StatusCode::OK, Json(format!("Category deleted successfully: {name}")));
+            }
+            
+            return (StatusCode::CREATED, Json(format!("Category doesn't exist: {name}")));
         }
     }
 
