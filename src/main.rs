@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use axum::{
     Router,
     routing::get,
@@ -10,6 +11,15 @@ use axum::{
     response::IntoResponse,
     http::StatusCode,
 };
+
+struct AppContext {
+    categories: Arc<Mutex<Vec<String>>>,
+}
+
+#[derive(Deserialize)]
+struct CategoryDataModel {
+    name: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct HelloQuery {
@@ -25,11 +35,18 @@ struct HelloResponse {
 async fn main() {
     fmt().init(); // for logging
 
+    // Common application context for all routes
+    let context = Arc::new(AppContext {
+        categories: Arc::new(Mutex::new(vec!["Food".to_string(), "Common".to_string()]))
+    });
+
     // All the routes will be here
     // Will be split into modules later
     let app = Router::new()
     	.route("/", get(hello_world))
-        .route("/hello", get(hello));
+        .route("/hello", get(hello))
+        .route("/categories", get(get_categories).post(add_category))
+        .with_state(context); // Attach the application context to the router
 
     // Set listen address
     let addr: SocketAddr = ([0,0,0,0], 3000).into();
@@ -53,4 +70,32 @@ async fn hello(Query(query): Query<HelloQuery>) -> impl IntoResponse {
         message: format!("Hello, {}!", name),
     };
     Json(response)
+}
+
+async fn get_categories(State(ctx): State<Arc<AppContext>>) -> impl IntoResponse {
+	let categories = ctx.categories.lock().unwrap();
+    let categories_list: Vec<String> = categories.clone();
+    Json(categories_list)
+}
+
+async fn add_category(
+    State(ctx): State<Arc<AppContext>>,
+    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse {
+    if let Some(Json(category)) = category {
+        if let Some(name) = category.name {
+            if name.trim().is_empty() {
+                return (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
+            }
+
+            let mut categories = ctx.categories.lock().unwrap();
+            if categories.contains(&name) {
+                return (StatusCode::CONFLICT, Json(format!("Category already exists: {name}")));
+            }
+
+            categories.push(name.clone());
+            return (StatusCode::CREATED, Json(format!("Category added successfully: {name}")));
+        }
+    }
+
+    (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
 }
