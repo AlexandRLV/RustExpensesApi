@@ -1,0 +1,1 @@
+﻿pub const NOT_FOUND_ERROR: &str = "404 NOT FOUND";

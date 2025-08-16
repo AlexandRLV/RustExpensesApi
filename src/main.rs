@@ -1,3 +1,7 @@
+mod model;
+mod utils;
+mod category;
+
 use std::net::SocketAddr;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format;
@@ -13,10 +17,17 @@ use axum::{
     http::StatusCode,
 };
 use sqlx::FromRow;
+use crate::category::CategoryModelController;
 
 struct AppContext {
-    categories: Arc<Mutex<Vec<String>>>,
     db: PgPool,
+    category_mc: CategoryModelController,
+}
+
+impl AppContext {
+    pub fn db(&self) -> &PgPool {
+        &self.db
+    }
 }
 
 #[derive(FromRow, Serialize)]
@@ -53,8 +64,8 @@ async fn main() {
 
     // Common application context for all routes
     let context = Arc::new(AppContext {
-        categories: Arc::new(Mutex::new(vec!["Food".to_string(), "Common".to_string()])),
         db: pool,
+        category_mc: CategoryModelController { }
     });
 
     // All the routes will be here
@@ -62,8 +73,7 @@ async fn main() {
     let app = Router::new()
     	.route("/", get(hello_world))
         .route("/hello", get(hello))
-        .route("/categories", get(get_categories).post(add_category).delete(delete_category))
-        .route("/categories-db", get(get_categories_db).post(add_category_db).delete(delete_category_db))
+        .route("/categories", get(get_categories_db).post(add_category_db).delete(delete_category_db))
         .route("/category-db", get(get_category_by_id_db))
         .with_state(context); // Attach the application context to the router
 
@@ -89,58 +99,6 @@ async fn hello(Query(query): Query<HelloQuery>) -> impl IntoResponse {
         message: format!("Hello, {}!", name),
     };
     Json(response)
-}
-
-async fn get_categories(State(ctx): State<Arc<AppContext>>) -> impl IntoResponse {
-	let categories = ctx.categories.lock().unwrap();
-    let categories_list: Vec<String> = categories.clone();
-    Json(categories_list)
-}
-
-async fn add_category(
-    State(ctx): State<Arc<AppContext>>,
-    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse
-{
-    if let Some(Json(category)) = category {
-        if let Some(name) = category.name {
-            if name.trim().is_empty() {
-                return (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
-            }
-
-            let mut categories = ctx.categories.lock().unwrap();
-            if categories.contains(&name) {
-                return (StatusCode::CONFLICT, Json(format!("Category already exists: {name}")));
-            }
-
-            categories.push(name.clone());
-            return (StatusCode::CREATED, Json(format!("Category added successfully: {name}")));
-        }
-    }
-
-    (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
-}
-
-async fn delete_category(
-    State(ctx): State<Arc<AppContext>>,
-    category: Option<Json<CategoryDataModel>>) -> impl IntoResponse
-{
-    if let Some(Json(category)) = category {
-        if let Some(name) = category.name {
-            if name.trim().is_empty() {
-                return (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
-            }
-
-            let mut categories = ctx.categories.lock().unwrap();
-            if let Some(index) = categories.iter().position(|value| **value == name) {
-                categories.swap_remove(index);
-                return (StatusCode::OK, Json(format!("Category deleted successfully: {name}")));
-            }
-
-            return (StatusCode::CREATED, Json(format!("Category doesn't exist: {name}")));
-        }
-    }
-
-    (StatusCode::BAD_REQUEST, Json("Category name is required".to_string()))
 }
 
 async fn get_categories_db(State(ctx): State<Arc<AppContext>>) -> Result<Json<Vec<String>>, (StatusCode, Json<String>)> {
